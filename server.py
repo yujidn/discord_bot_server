@@ -1,7 +1,6 @@
 import json
 import os
-import socket
-
+import asyncio
 import discord
 
 # BotのトークンとチャンネルIDを設定
@@ -14,46 +13,43 @@ client = discord.Client(intents=intents)
 # socket通信用の設定
 HOST = "localhost"
 PORT = 12345
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind((HOST, PORT))
-# クライアントからの接続をリッスン
-server_socket.listen(5)
 
-
-async def post_message():
+async def post_message(reader, writer):
     while True:
-        # クライアントからの接続を受け付ける
-        client_socket, _ = server_socket.accept()
+        data = await reader.read(4096)
+        if not data:
+            break
 
-        while True:
-            # クライアントからのデータを受信
-            data = client_socket.recv(4096)
-            print(f'受信データ: {data.decode("utf-8")}')
+        print(f'受信データ: {data.decode("utf-8")}')
 
-            # データがない場合、接続を閉じる
-            if not data:
-                break
+        data = json.loads(data.decode())
+        ch_id = data["id"]
+        content = data["data"]
+        prefix = data.get("prefix", "")
 
-            # 受信データをデコードして表示
-            data = json.loads(data.decode())
-            ch_id = data["id"]
-            content = data["data"]
-            prefix = data.get("prefix", "")
+        content = json.dumps(content, indent=2, ensure_ascii=False)
 
-            content = json.dumps(content, indent=2, ensure_ascii=False)
+        channel = client.get_channel(ch_id)
+        await channel.send(f"{prefix}\n{txt}")
 
-            channel = client.get_channel(ch_id)
-            await channel.send(f"{prefix}\n{content}")
+    writer.close()
+    await writer.wait_closed()
 
-        # ソケットを閉じる
-        client_socket.close()
+
+async def start_server():
+    server = await asyncio.start_server(
+        post_message, HOST, PORT
+    )
+
+    async with server:
+        await server.serve_forever()
 
 
 # Botが起動したときに実行されるイベント
 @client.event
 async def on_ready():
     print(f"{client.user} がオンラインです！")
-    client.loop.create_task(post_message())
+    client.loop.create_task(start_server())
 
 
 # Botを実行
